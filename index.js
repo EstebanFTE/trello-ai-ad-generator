@@ -278,36 +278,43 @@ async function getBoardLists(boardId) {
   return trelloGet(`https://api.trello.com/1/boards/${boardId}/lists`);
 }
 
+async function getBoardCards(boardId) {
+  return trelloGet(`https://api.trello.com/1/boards/${boardId}/cards`, {
+    fields: "id,name,desc,idList,labels,shortLink,idShort",
+  });
+}
+
 async function getCardsInList(listId) {
   return trelloGet(`https://api.trello.com/1/lists/${listId}/cards`, {
-    fields: "id,name,desc,idList,labels,shortLink",
+    fields: "id,name,desc,idList,labels,shortLink,idShort",
+  });
+}
+
+async function getCardByRealId(cardId) {
+  return trelloGet(`https://api.trello.com/1/cards/${cardId}`, {
+    fields: "id,name,desc,idList,labels,shortLink,idShort",
+    attachments: true,
+    attachment_fields: "id,name,url,fileName,isUpload,mimeType",
+    customFieldItems: true,
   });
 }
 
 async function getCardByAnyId(cardIdOrShortLink) {
-  const commonParams = {
-    fields: "id,name,desc,idList,labels,shortLink",
-    attachments: true,
-    attachment_fields: "id,name,url,fileName,isUpload,mimeType",
-    customFieldItems: true,
-  };
+  const boardCards = await getBoardCards(TRELLO_BOARD_ID);
 
-  try {
-    return await trelloGet(`https://api.trello.com/1/cards/${cardIdOrShortLink}`, commonParams);
-  } catch (error) {
-    const status = error.response?.status;
-    const message = error.response?.data || error.message;
+  const match = boardCards.find((card) => {
+    return (
+      card.id === cardIdOrShortLink ||
+      card.shortLink === cardIdOrShortLink ||
+      String(card.idShort) === String(cardIdOrShortLink)
+    );
+  });
 
-    if (
-      status === 400 ||
-      status === 404 ||
-      String(message).toLowerCase().includes("invalid id")
-    ) {
-      return await trelloGet(`https://api.trello.com/1/cards/${cardIdOrShortLink}/${cardIdOrShortLink}`, commonParams);
-    }
-
-    throw error;
+  if (!match) {
+    throw new Error(`Card not found on board for value "${cardIdOrShortLink}"`);
   }
+
+  return getCardByRealId(match.id);
 }
 
 async function getBoardCustomFields(boardId) {
@@ -365,7 +372,7 @@ async function findPortfolioCardByClientName(clientName) {
     throw new Error(`No portfolio card found for client "${clientName}"`);
   }
 
-  return getCardByAnyId(card.id);
+  return getCardByRealId(card.id);
 }
 
 async function attachFileToTrelloCard(cardId, filePath, fileName) {
