@@ -155,7 +155,8 @@ function buildImagePrompt(context) {
   const lights = lightingStyles[campaign.season] || lightingStyles.spring;
 
   const toneList = safeSplit(brand.tone).join(", ") || brand.tone || "trustworthy, local";
-  const colorList = safeSplit(brand.brand_colors).join(", ") || brand.brand_colors || "#003399, #FFFFFF, #C0C0C0";
+  const colorList =
+    safeSplit(brand.brand_colors).join(", ") || brand.brand_colors || "#003399, #FFFFFF, #C0C0C0";
 
   return `
 Create a HIGH-QUALITY AD CONCEPT IMAGE for creative direction only.
@@ -199,7 +200,10 @@ Brand Keywords:
 ${brand.brand_keywords || "community, trustworthy, local, family-friendly"}
 
 Image Style Reference:
-${brand.image_style_reference || "bright dealership photography, realistic, natural light, clean vehicles, minimal clutter"}
+${
+  brand.image_style_reference ||
+  "bright dealership photography, realistic, natural light, clean vehicles, minimal clutter"
+}
 
 Season:
 ${campaign.season}
@@ -300,9 +304,11 @@ async function getCardByRealId(cardId) {
 }
 
 async function getCardByAnyId(cardIdOrShortLink) {
-  const boardCards = await getBoardCards(TRELLO_BOARD_ID);
+  const cards = await trelloGet(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/cards`, {
+    fields: "id,name,shortLink,idShort",
+  });
 
-  const match = boardCards.find((card) => {
+  const match = cards.find((card) => {
     return (
       card.id === cardIdOrShortLink ||
       card.shortLink === cardIdOrShortLink ||
@@ -311,10 +317,15 @@ async function getCardByAnyId(cardIdOrShortLink) {
   });
 
   if (!match) {
-    throw new Error(`Card not found on board for value "${cardIdOrShortLink}"`);
+    throw new Error(`Card not found: ${cardIdOrShortLink}`);
   }
 
-  return getCardByRealId(match.id);
+  return trelloGet(`https://api.trello.com/1/cards/${match.id}`, {
+    fields: "id,name,desc,idList,labels,shortLink",
+    attachments: true,
+    attachment_fields: "id,name,url,fileName,isUpload,mimeType",
+    customFieldItems: true,
+  });
 }
 
 async function getBoardCustomFields(boardId) {
@@ -382,30 +393,22 @@ async function attachFileToTrelloCard(cardId, filePath, fileName) {
   form.append("file", fs.createReadStream(filePath), fileName);
   form.append("name", fileName);
 
-  const response = await axios.post(
-    `https://api.trello.com/1/cards/${cardId}/attachments`,
-    form,
-    {
-      headers: form.getHeaders(),
-      maxBodyLength: Infinity,
-    }
-  );
+  const response = await axios.post(`https://api.trello.com/1/cards/${cardId}/attachments`, form, {
+    headers: form.getHeaders(),
+    maxBodyLength: Infinity,
+  });
 
   return response.data;
 }
 
 async function addCommentToCard(cardId, text) {
-  const response = await axios.post(
-    `https://api.trello.com/1/cards/${cardId}/actions/comments`,
-    null,
-    {
-      params: {
-        key: TRELLO_KEY,
-        token: TRELLO_TOKEN,
-        text,
-      },
-    }
-  );
+  const response = await axios.post(`https://api.trello.com/1/cards/${cardId}/actions/comments`, null, {
+    params: {
+      key: TRELLO_KEY,
+      token: TRELLO_TOKEN,
+      text,
+    },
+  });
 
   return response.data;
 }
