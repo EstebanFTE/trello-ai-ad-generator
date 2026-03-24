@@ -14,9 +14,8 @@ app.get("/generate-and-save/:cardId", async (req, res) => {
 
     const output = await generateAdFromBrand(brandCard, requestData);
 
-    // Format content to save into Trello
     const content = `
-=== AI GENERATED AD ===
+\n\n=== AI GENERATED AD ===
 
 HEADLINES:
 - ${output.headlines.join("\n- ")}
@@ -37,7 +36,6 @@ IMAGE PROMPT:
 ${output.image_prompt}
 `;
 
-    // Update card description
     await axios.put(
       `https://api.trello.com/1/cards/${cardId}`,
       null,
@@ -45,17 +43,17 @@ ${output.image_prompt}
         params: {
           key: process.env.TRELLO_KEY,
           token: process.env.TRELLO_TOKEN,
-          desc: content
+          desc: `${brandCard.description}${content}`
         }
       }
     );
 
     res.json({
       ok: true,
-      message: "Ad generated and saved to Trello",
+      message: "Ad generated and appended to Trello card",
+      cardId,
       output
     });
-
   } catch (error) {
     console.error("SAVE ERROR:", error.response?.data || error.message);
 
