@@ -12,12 +12,10 @@ app.get("/", (req, res) => {
 });
 
 app.get("/brand-card/:cardId", async (req, res) => {
+  const { cardId } = req.params;
+
   try {
-    const { cardId } = req.params;
-
-    const url = `https://api.trello.com/1/cards/${cardId}`;
-
-    const response = await axios.get(url, {
+    const response = await axios.get(`https://api.trello.com/1/cards/${cardId}`, {
       params: {
         key: process.env.TRELLO_KEY,
         token: process.env.TRELLO_TOKEN,
@@ -26,13 +24,20 @@ app.get("/brand-card/:cardId", async (req, res) => {
       }
     });
 
-    res.json(response.data);
+    res.json({
+      ok: true,
+      keyExists: !!process.env.TRELLO_KEY,
+      tokenExists: !!process.env.TRELLO_TOKEN,
+      card: response.data
+    });
   } catch (error) {
     console.error("FULL TRELLO ERROR:", error.response?.data || error.message);
 
     res.status(500).json({
       ok: false,
-      message: "Error fetching card",
+      keyExists: !!process.env.TRELLO_KEY,
+      tokenExists: !!process.env.TRELLO_TOKEN,
+      cardId,
       details: error.response?.data || error.message
     });
   }
