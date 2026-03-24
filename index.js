@@ -1,6 +1,9 @@
 import express from "express";
 import axios from "axios";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
@@ -9,6 +12,16 @@ const PORT = process.env.PORT || 3000;
 const ALLOWED_TEST_CARD_ID = "5f1b1bf3f54ac166cbdd50d8";
 
 app.use(express.json());
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const imageDir = path.join(__dirname, "generated-images");
+
+if (!fs.existsSync(imageDir)) {
+  fs.mkdirSync(imageDir, { recursive: true });
+}
+
+app.use("/generated-images", express.static(imageDir));
 
 function extractCustomFieldValue(item) {
   if (!item || !item.value) return null;
@@ -125,6 +138,40 @@ Rules:
   return JSON.parse(openaiResponse.data.choices[0].message.content);
 }
 
+async function generateImageFromPrompt(promptText, filePrefix = "ad-image") {
+  const response = await axios.post(
+    "https://api.openai.com/v1/images/generations",
+    {
+      model: "gpt-image-1",
+      prompt: promptText,
+      size: "1536x1024",
+      quality: "medium"
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  const imageBase64 = response.data?.data?.[0]?.b64_json;
+  if (!imageBase64) {
+    throw new Error("No image data returned from OpenAI.");
+  }
+
+  const fileName = `${filePrefix}-${Date.now()}.png`;
+  const filePath = path.join(imageDir, fileName);
+
+  fs.writeFileSync(filePath, Buffer.from(imageBase64, "base64"));
+
+  return {
+    fileName,
+    filePath,
+    publicUrl: `/generated-images/${fileName}`
+  };
+}
+
 app.get("/", (req, res) => {
   res.send("API is running");
 });
@@ -176,6 +223,41 @@ app.get("/generate-ad-test/:cardId", async (req, res) => {
     res.status(500).json({
       ok: false,
       message: "Error generating test ad",
+      details: error.response?.data || error.message
+    });
+  }
+});
+
+app.get("/generate-ad-with-image/:cardId", async (req, res) => {
+  try {
+    const { cardId } = req.params;
+
+    const brandCard = await getBrandCard(cardId);
+
+    const requestData = {
+      platform: "social",
+      campaign_topic: "spring sales event",
+      offer: "shop our inventory",
+      objective: "drive vehicle sales",
+      size: "1080x1080"
+    };
+
+    const output = await generateAdFromBrand(brandCard, requestData);
+    const image = await generateImageFromPrompt(output.image_prompt, "raabe-social");
+
+    res.json({
+      ok: true,
+      request: requestData,
+      brand: brandCard.fields,
+      output,
+      image_url: `${req.protocol}://${req.get("host")}${image.publicUrl}`
+    });
+  } catch (error) {
+    console.error("GENERATE IMAGE ERROR:", error.response?.data || error.message);
+
+    res.status(500).json({
+      ok: false,
+      message: "Error generating ad with image",
       details: error.response?.data || error.message
     });
   }
