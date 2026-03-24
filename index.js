@@ -10,16 +10,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json());
 
+// ✅ CRITICAL FIX
 const PORT = process.env.PORT || 3000;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const TMP_DIR = path.join(__dirname, "tmp");
-if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR);
+// ------------------ BASIC TEST ------------------
+
+app.get("/", (req, res) => {
+  res.send("trello-ai-ad-generator is running");
+});
 
 // ------------------ TRELLO ------------------
 
@@ -34,7 +37,7 @@ async function trelloGet(url, params = {}) {
   return res.data;
 }
 
-// 🔥 FORCE FIND CARD BY SHORT ID
+// 🔥 FIXED CARD LOOKUP
 async function getCardByAnyId(cardId) {
   const cards = await trelloGet(
     `https://api.trello.com/1/boards/${process.env.TRELLO_BOARD_ID}/cards`,
@@ -50,29 +53,24 @@ async function getCardByAnyId(cardId) {
 
   if (!match) throw new Error("Card not found");
 
-  console.log("FOUND CARD:", match);
-
-  // ALWAYS USE REAL ID FROM HERE ON
   return trelloGet(`https://api.trello.com/1/cards/${match.id}`, {
-    fields: "id,name,desc,labels",
-    attachments: true,
-    customFieldItems: true,
+    fields: "id,name,desc",
   });
 }
 
 // ------------------ IMAGE ------------------
 
-async function generateImage(prompt) {
+async function generateImage() {
   const result = await openai.images.generate({
     model: "gpt-image-1",
-    prompt,
+    prompt: "clean dealership automotive scene, realistic lighting",
     size: "1024x1024",
   });
 
   const base64 = result.data[0].b64_json;
 
   const fileName = `img-${Date.now()}.png`;
-  const filePath = path.join(TMP_DIR, fileName);
+  const filePath = path.join(__dirname, fileName);
 
   fs.writeFileSync(filePath, Buffer.from(base64, "base64"));
 
@@ -82,8 +80,6 @@ async function generateImage(prompt) {
 // ------------------ ATTACH ------------------
 
 async function attachToCard(cardId, filePath, fileName) {
-  console.log("ATTACHING TO CARD ID:", cardId);
-
   const form = new FormData();
   form.append("file", fs.createReadStream(filePath));
 
@@ -109,15 +105,13 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
   try {
     const { cardId } = req.params;
 
-    console.log("REQUEST CARD ID:", cardId);
+    console.log("Incoming ID:", cardId);
 
     const card = await getCardByAnyId(cardId);
 
-    console.log("REAL CARD ID:", card.id);
+    console.log("Resolved ID:", card.id);
 
-    const prompt = `Clean automotive dealership scene, realistic lighting, no text, no logos`;
-
-    const { fileName, filePath } = await generateImage(prompt);
+    const { fileName, filePath } = await generateImage();
 
     const attachment = await attachToCard(card.id, filePath, fileName);
 
@@ -125,11 +119,10 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
 
     res.json({
       ok: true,
-      cardId: card.id,
       attachment: attachment.url,
     });
   } catch (err) {
-    console.error("FULL ERROR:", err.response?.data || err.message);
+    console.error("ERROR:", err.response?.data || err.message);
 
     res.status(500).json({
       ok: false,
@@ -138,12 +131,7 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
   }
 });
 
-// ------------------
-
-app.get("/", (req, res) => {
-  res.send("trello-ai-ad-generator is running");
-});
-
-app.listen(PORT, () => {
+// ✅ CRITICAL FIX
+app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
