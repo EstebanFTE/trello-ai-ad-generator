@@ -13,25 +13,11 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TRELLO_KEY = process.env.TRELLO_KEY;
 const TRELLO_TOKEN = process.env.TRELLO_TOKEN;
 const TRELLO_BOARD_ID = process.env.TRELLO_BOARD_ID;
 const PORTFOLIO_LIST_NAME = process.env.PORTFOLIO_LIST_NAME || "Client Portfolios";
-
-if (!OPENAI_API_KEY) {
-  console.error("Missing OPENAI_API_KEY");
-}
-if (!TRELLO_KEY) {
-  console.error("Missing TRELLO_KEY");
-}
-if (!TRELLO_TOKEN) {
-  console.error("Missing TRELLO_TOKEN");
-}
-if (!TRELLO_BOARD_ID) {
-  console.error("Missing TRELLO_BOARD_ID");
-}
 
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
@@ -41,10 +27,6 @@ const TMP_DIR = path.join(__dirname, "tmp");
 if (!fs.existsSync(TMP_DIR)) {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 }
-
-/* -----------------------------
-   Helpers
------------------------------ */
 
 function safeSplit(value) {
   if (!value || typeof value !== "string") return [];
@@ -61,11 +43,7 @@ function randomPick(arr, fallback = "") {
 
 function extractClientName(cardName = "", customFields = {}) {
   if (customFields.client_name) return customFields.client_name.trim();
-
-  if (cardName.includes(":")) {
-    return cardName.split(":")[0].trim();
-  }
-
+  if (cardName.includes(":")) return cardName.split(":")[0].trim();
   return cardName.trim();
 }
 
@@ -285,10 +263,6 @@ function buildContext(requestCard, requestFields, portfolioFields) {
   };
 }
 
-/* -----------------------------
-   Trello API
------------------------------ */
-
 async function trelloGet(url, params = {}) {
   const response = await axios.get(url, {
     params: {
@@ -306,17 +280,34 @@ async function getBoardLists(boardId) {
 
 async function getCardsInList(listId) {
   return trelloGet(`https://api.trello.com/1/lists/${listId}/cards`, {
-    fields: "id,name,desc,idList,labels",
+    fields: "id,name,desc,idList,labels,shortLink",
   });
 }
 
-async function getCard(cardId) {
-  return trelloGet(`https://api.trello.com/1/cards/${cardId}`, {
-    fields: "id,name,desc,idList,labels",
+async function getCardByAnyId(cardIdOrShortLink) {
+  const commonParams = {
+    fields: "id,name,desc,idList,labels,shortLink",
     attachments: true,
     attachment_fields: "id,name,url,fileName,isUpload,mimeType",
     customFieldItems: true,
-  });
+  };
+
+  try {
+    return await trelloGet(`https://api.trello.com/1/cards/${cardIdOrShortLink}`, commonParams);
+  } catch (error) {
+    const status = error.response?.status;
+    const message = error.response?.data || error.message;
+
+    if (
+      status === 400 ||
+      status === 404 ||
+      String(message).toLowerCase().includes("invalid id")
+    ) {
+      return await trelloGet(`https://api.trello.com/1/cards/${cardIdOrShortLink}/${cardIdOrShortLink}`, commonParams);
+    }
+
+    throw error;
+  }
 }
 
 async function getBoardCustomFields(boardId) {
@@ -374,7 +365,7 @@ async function findPortfolioCardByClientName(clientName) {
     throw new Error(`No portfolio card found for client "${clientName}"`);
   }
 
-  return getCard(card.id);
+  return getCardByAnyId(card.id);
 }
 
 async function attachFileToTrelloCard(cardId, filePath, fileName) {
@@ -412,10 +403,6 @@ async function addCommentToCard(cardId, text) {
   return response.data;
 }
 
-/* -----------------------------
-   OpenAI image
------------------------------ */
-
 async function generateConceptImage(prompt) {
   const result = await openai.images.generate({
     model: "gpt-image-1",
@@ -437,10 +424,6 @@ async function generateConceptImage(prompt) {
   return { fileName, filePath };
 }
 
-/* -----------------------------
-   Routes
------------------------------ */
-
 app.get("/", (req, res) => {
   res.send("trello-ai-ad-generator is running");
 });
@@ -451,7 +434,7 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
   try {
     const { cardId } = req.params;
 
-    const requestCard = await getCard(cardId);
+    const requestCard = await getCardByAnyId(cardId);
     const boardCustomFields = await getBoardCustomFields(TRELLO_BOARD_ID);
     const requestFields = mapCustomFields(requestCard, boardCustomFields);
 
@@ -465,10 +448,10 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
     const { fileName, filePath } = await generateConceptImage(prompt);
     tempFilePath = filePath;
 
-    const attachment = await attachFileToTrelloCard(cardId, filePath, fileName);
+    const attachment = await attachFileToTrelloCard(requestCard.id, filePath, fileName);
 
     await addCommentToCard(
-      cardId,
+      requestCard.id,
       `AI concept image generated for ${context.client.name} (${context.campaign.adType}, ${context.campaign.season}).`
     );
 
@@ -482,6 +465,8 @@ app.get("/generate-reference-image/:cardId", async (req, res) => {
       adType: context.campaign.adType,
       season: context.campaign.season,
       portfolioCard: portfolioCard.name,
+      requestCardId: requestCard.id,
+      requestShortLink: requestCard.shortLink,
       attachmentUrl: attachment.url,
       attachmentName: attachment.name,
       prompt,
