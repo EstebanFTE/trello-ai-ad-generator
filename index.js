@@ -32,6 +32,16 @@ function extractCustomFieldValue(item) {
   return null;
 }
 
+function buildRequestData(query) {
+  return {
+    platform: query.platform || "social",
+    campaign_topic: query.topic || "spring sales event",
+    offer: query.offer || "shop our inventory",
+    objective: query.objective || "drive vehicle sales",
+    size: query.size || "1080x1080"
+  };
+}
+
 async function getBrandCard(cardId) {
   const cardResponse = await axios.get(`https://api.trello.com/1/cards/${cardId}`, {
     params: {
@@ -198,17 +208,8 @@ app.get("/brand-card/:cardId", async (req, res) => {
 app.get("/generate-ad-test/:cardId", async (req, res) => {
   try {
     const { cardId } = req.params;
-
+    const requestData = buildRequestData(req.query);
     const brandCard = await getBrandCard(cardId);
-
-    const requestData = {
-      platform: "social",
-      campaign_topic: "spring sales event",
-      offer: "shop our inventory",
-      objective: "drive vehicle sales",
-      size: "1080x1080"
-    };
-
     const output = await generateAdFromBrand(brandCard, requestData);
 
     res.json({
@@ -231,19 +232,10 @@ app.get("/generate-ad-test/:cardId", async (req, res) => {
 app.get("/generate-ad-with-image/:cardId", async (req, res) => {
   try {
     const { cardId } = req.params;
-
+    const requestData = buildRequestData(req.query);
     const brandCard = await getBrandCard(cardId);
-
-    const requestData = {
-      platform: "social",
-      campaign_topic: "spring sales event",
-      offer: "shop our inventory",
-      objective: "drive vehicle sales",
-      size: "1080x1080"
-    };
-
     const output = await generateAdFromBrand(brandCard, requestData);
-    const image = await generateImageFromPrompt(output.image_prompt, "raabe-social");
+    const image = await generateImageFromPrompt(output.image_prompt, "dynamic-ad");
 
     res.json({
       ok: true,
@@ -274,21 +266,20 @@ app.get("/generate-and-save/:cardId", async (req, res) => {
       });
     }
 
+    const requestData = buildRequestData(req.query);
     const brandCard = await getBrandCard(cardId);
-
-    const requestData = {
-      platform: "social",
-      campaign_topic: "spring sales event",
-      offer: "shop our inventory",
-      objective: "drive vehicle sales",
-      size: "1080x1080"
-    };
-
     const output = await generateAdFromBrand(brandCard, requestData);
 
     const content = `
 
 === AI GENERATED AD ===
+
+REQUEST:
+- Platform: ${requestData.platform}
+- Campaign Topic: ${requestData.campaign_topic}
+- Offer: ${requestData.offer}
+- Objective: ${requestData.objective}
+- Size: ${requestData.size}
 
 HEADLINES:
 - ${output.headlines.join("\n- ")}
@@ -325,6 +316,7 @@ ${output.image_prompt}
       ok: true,
       message: "Ad generated and appended to Trello card",
       cardId,
+      request: requestData,
       output
     });
   } catch (error) {
